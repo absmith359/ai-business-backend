@@ -1,6 +1,16 @@
 import uuid
+import os
+import requests
 from datetime import datetime
-from utils.vector_client import supabase
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
 
 # -----------------------------
 # Generate unique referral code
@@ -9,6 +19,7 @@ def generate_referral_code(name: str) -> str:
     base = name.replace(" ", "").upper()
     suffix = str(uuid.uuid4())[:6].upper()
     return f"{base}-{suffix}"
+
 
 # -----------------------------
 # Create a new rep
@@ -29,22 +40,26 @@ def create_rep(data: dict):
         "created_at": datetime.utcnow().isoformat()
     }
 
-    response = supabase.table("reps").insert(rep).execute()
+    url = f"{SUPABASE_URL}/rest/v1/reps"
+    response = requests.post(url, json=rep, headers=headers)
 
-    if response.data:
-        return {
-            "status": "success",
-            "rep": response.data[0]
-        }
-    else:
+    if response.status_code >= 300:
         raise Exception("Failed to create rep")
+
+    return {
+        "status": "success",
+        "rep": response.json()[0]
+    }
+
 
 # -----------------------------
 # Get rep info
 # -----------------------------
 def get_rep(rep_id: str):
-    res = supabase.table("reps").select("*").eq("id", rep_id).execute()
-    return res.data[0] if res.data else None
+    url = f"{SUPABASE_URL}/rest/v1/reps?id=eq.{rep_id}"
+    res = requests.get(url, headers=headers).json()
+    return res[0] if res else None
+
 
 # -----------------------------
 # Get rep stats
@@ -60,29 +75,31 @@ def get_rep_stats(rep_id: str):
         "conversions": rep.get("total_conversions", 0)
     }
 
+
 # -----------------------------
 # Leaderboard
 # -----------------------------
 def get_rep_leaderboard():
-    res = supabase.table("reps").select("*").order("total_referrals", desc=True).execute()
-    return res.data
+    url = f"{SUPABASE_URL}/rest/v1/reps?order=total_referrals.desc"
+    res = requests.get(url, headers=headers).json()
+    return res
+
 
 # -----------------------------
 # Track referral event
 # -----------------------------
 def track_rep_referral(rep_id: str, business_id: str | None, lead_id: str | None):
-    # increment counters (simple version)
     rep = get_rep(rep_id)
     if not rep:
         return {"error": "Rep not found"}
 
     new_total = (rep.get("total_referrals") or 0) + 1
 
-    supabase.table("reps").update({
-        "total_referrals": new_total
-    }).eq("id", rep_id).execute()
+    # Update rep stats
+    url = f"{SUPABASE_URL}/rest/v1/reps?id=eq.{rep_id}"
+    requests.patch(url, json={"total_referrals": new_total}, headers=headers)
 
-    # log referral
+    # Log referral
     referral = {
         "id": str(uuid.uuid4()),
         "rep_id": rep_id,
@@ -91,7 +108,8 @@ def track_rep_referral(rep_id: str, business_id: str | None, lead_id: str | None
         "timestamp": datetime.utcnow().isoformat()
     }
 
-    supabase.table("referrals").insert(referral).execute()
+    url = f"{SUPABASE_URL}/rest/v1/referrals"
+    requests.post(url, json=referral, headers=headers)
 
     return {
         "status": "success",

@@ -1,11 +1,20 @@
 import uuid
+import os
+import requests
 from datetime import datetime
-from typing import Optional, List
-from utils.vector_client import supabase
+from typing import Optional
 from models.lead import Lead
 from services.referral_service import validate_referral_code, track_referral
 from services.rep_service import get_rep
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
 
 # -----------------------------
 # Lead scoring
@@ -34,10 +43,10 @@ def submit_lead(data: dict):
     lead_id = str(uuid.uuid4())
     created_at = datetime.utcnow().isoformat()
 
-    # Optional: validate referral code
     rep_id: Optional[str] = data.get("rep_id")
     referral_code: Optional[str] = data.get("referral_code")
 
+    # Validate referral code
     if referral_code and not rep_id:
         rep = validate_referral_code(referral_code)
         if rep:
@@ -59,12 +68,13 @@ def submit_lead(data: dict):
 
     lead = Lead(**lead_data)
 
-    response = supabase.table("leads").insert(lead.dict()).execute()
+    url = f"{SUPABASE_URL}/rest/v1/leads"
+    response = requests.post(url, json=lead.dict(), headers=headers)
 
-    if not response.data:
+    if response.status_code >= 300:
         return {"status": "error", "message": "Failed to create lead"}
 
-    # Track referral if applicable
+    # Track referral
     if referral_code:
         track_referral({
             "referral_code": referral_code,
@@ -72,11 +82,9 @@ def submit_lead(data: dict):
             "lead_id": lead_id
         })
 
-    # TODO: notifications (email/WhatsApp) can be added here later
-
     return {
         "status": "success",
-        "lead": response.data[0]
+        "lead": response.json()[0]
     }
 
 
@@ -84,17 +92,12 @@ def submit_lead(data: dict):
 # List leads for a business
 # -----------------------------
 def list_leads(business_id: str):
-    res = (
-        supabase.table("leads")
-        .select("*")
-        .eq("business_id", business_id)
-        .order("created_at", desc=True)
-        .execute()
-    )
+    url = f"{SUPABASE_URL}/rest/v1/leads?business_id=eq.{business_id}&order=created_at.desc"
+    res = requests.get(url, headers=headers).json()
 
     return {
         "status": "success",
-        "leads": res.data
+        "leads": res
     }
 
 
@@ -107,24 +110,22 @@ def filter_leads(
     min_score: Optional[int] = None,
     max_score: Optional[int] = None
 ):
-    query = (
-        supabase.table("leads")
-        .select("*")
-        .eq("business_id", business_id)
-    )
+    url = f"{SUPABASE_URL}/rest/v1/leads?business_id=eq.{business_id}"
 
     if status:
-        query = query.eq("status", status)
+        url += f"&status=eq.{status}"
     if min_score is not None:
-        query = query.gte("score", min_score)
+        url += f"&score=gte.{min_score}"
     if max_score is not None:
-        query = query.lte("score", max_score)
+        url += f"&score=lte.{max_score}"
 
-    res = query.order("created_at", desc=True).execute()
+    url += "&order=created_at.desc"
+
+    res = requests.get(url, headers=headers).json()
 
     return {
         "status": "success",
-        "leads": res.data
+        "leads": res
     }
 
 
@@ -132,9 +133,10 @@ def filter_leads(
 # Update lead status
 # -----------------------------
 def update_lead_status(lead_id: str, status: str):
-    res = supabase.table("leads").update({"status": status}).eq("id", lead_id).execute()
+    url = f"{SUPABASE_URL}/rest/v1/leads?id=eq.{lead_id}"
+    res = requests.patch(url, json={"status": status}, headers=headers)
 
     return {
         "status": "success",
-        "updated": res.data
+        "updated": res.json()
     }

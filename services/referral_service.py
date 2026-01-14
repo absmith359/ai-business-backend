@@ -1,14 +1,26 @@
 import uuid
+import os
+import requests
 from datetime import datetime
-from utils.vector_client import supabase
 from services.rep_service import track_rep_referral
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
 
 # -----------------------------
 # Validate referral code
 # -----------------------------
 def validate_referral_code(code: str):
-    res = supabase.table("reps").select("*").eq("referral_code", code).execute()
-    return res.data[0] if res.data else None
+    url = f"{SUPABASE_URL}/rest/v1/reps?referral_code=eq.{code}"
+    res = requests.get(url, headers=headers).json()
+    return res[0] if res else None
+
 
 # -----------------------------
 # Track referral event
@@ -24,7 +36,6 @@ def track_referral(data: dict):
     business_id = data.get("business_id")
     lead_id = data.get("lead_id")
 
-    # Log referral event
     referral = {
         "id": str(uuid.uuid4()),
         "rep_id": rep_id,
@@ -34,7 +45,12 @@ def track_referral(data: dict):
         "timestamp": datetime.utcnow().isoformat()
     }
 
-    supabase.table("referrals").insert(referral).execute()
+    # Insert referral
+    url = f"{SUPABASE_URL}/rest/v1/referrals"
+    response = requests.post(url, json=referral, headers=headers)
+
+    if response.status_code >= 300:
+        return {"status": "error", "message": "Failed to log referral"}
 
     # Update rep stats
     track_rep_referral(rep_id, business_id, lead_id)
@@ -44,22 +60,28 @@ def track_referral(data: dict):
         "referral": referral
     }
 
+
 # -----------------------------
 # Get referrals for a rep
 # -----------------------------
 def get_referrals_for_rep(rep_id: str):
-    res = supabase.table("referrals").select("*").eq("rep_id", rep_id).execute()
+    url = f"{SUPABASE_URL}/rest/v1/referrals?rep_id=eq.{rep_id}"
+    res = requests.get(url, headers=headers).json()
+
     return {
         "status": "success",
-        "referrals": res.data
+        "referrals": res
     }
+
 
 # -----------------------------
 # Get referrals for a business
 # -----------------------------
 def get_referrals_for_business(business_id: str):
-    res = supabase.table("referrals").select("*").eq("business_id", business_id).execute()
+    url = f"{SUPABASE_URL}/rest/v1/referrals?business_id=eq.{business_id}"
+    res = requests.get(url, headers=headers).json()
+
     return {
         "status": "success",
-        "referrals": res.data
+        "referrals": res
     }
