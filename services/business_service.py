@@ -38,11 +38,14 @@ def create_business(data: dict):
     url = f"{SUPABASE_URL}/rest/v1/businesses"
     response = requests.post(url, json=business.dict(), headers=headers)
 
+    if response.status_code >= 300:
+        print("Error creating business:", response.text)
+        raise Exception("Failed to create business")
+
     return {
         "status": "success",
         "business": response.json()[0]
     }
-
 
 # ---------------------------------------------------------
 # ADD KNOWLEDGE
