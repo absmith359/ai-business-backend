@@ -1,15 +1,25 @@
 from fastapi import APIRouter
+from pydantic import BaseModel
 from services.business_service import create_business, add_business_knowledge
 
 router = APIRouter(prefix="/business", tags=["business"])
 
+class BusinessCreateRequest(BaseModel):
+    name: str
+    owner_name: str
+    email: str
+    phone: str | None = None
+
+class KnowledgeUploadRequest(BaseModel):
+    documents: list[dict]
+
 @router.post("/create")
-def create_business_route(payload: dict):
-    return create_business(payload)
+def create_business_route(payload: BusinessCreateRequest):
+    return create_business(payload.dict())
 
 @router.post("/{business_id}/knowledge")
-def upload_knowledge_route(business_id: str, payload: dict):
-    return add_business_knowledge(business_id, payload)
+def upload_knowledge_route(business_id: str, payload: KnowledgeUploadRequest):
+    return add_business_knowledge(business_id, payload.dict())
 
 @router.patch("/{business_id}/settings")
 def update_business_settings_route(business_id: str, payload: dict):
