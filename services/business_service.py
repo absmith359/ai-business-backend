@@ -11,7 +11,8 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 headers = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "Prefer": "return=representation"
 }
 
 # ---------------------------------------------------------
@@ -38,13 +39,19 @@ def create_business(data: dict):
     url = f"{SUPABASE_URL}/rest/v1/businesses"
     response = requests.post(url, json=business.dict(), headers=headers)
 
+    print("SUPABASE STATUS:", response.status_code)
+    print("SUPABASE TEXT:", response.text)
+
     if response.status_code >= 300:
-        print("Error creating business:", response.text)
-        raise Exception("Failed to create business")
+        raise Exception(f"Supabase insert failed: {response.text}")
+
+    data = response.json()
+    if not data:
+        raise Exception("Supabase returned empty response. Check table name or RLS policies.")
 
     return {
         "status": "success",
-        "business": response.json()[0]
+        "business": data[0]
     }
 
 # ---------------------------------------------------------
@@ -63,7 +70,6 @@ def add_business_knowledge(business_id: str, data: dict):
 
     return {"status": "success", "message": "Knowledge uploaded successfully"}
 
-
 # ---------------------------------------------------------
 # GET BUSINESS INFO
 # ---------------------------------------------------------
@@ -76,7 +82,6 @@ def get_business_info(business_id: str):
         return {"status": "error", "message": "Business not found"}
 
     return {"status": "success", "business": data[0]}
-
 
 # ---------------------------------------------------------
 # ANALYTICS
@@ -115,7 +120,6 @@ def get_business_analytics(business_id: str):
             "last_chat_at": last_chat
         }
     }
-
 
 # ---------------------------------------------------------
 # UPDATE SETTINGS
