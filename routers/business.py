@@ -1,5 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
+from services.lead_service import create_lead, list_leads, filter_leads
+from pydantic import BaseModel
 from services.business_service import create_business, add_business_knowledge
 
 router = APIRouter(prefix="/business", tags=["business"])
@@ -35,3 +37,20 @@ def get_business_info_route(business_id: str):
 def get_business_analytics_route(business_id: str):
     from services.business_service import get_business_analytics
     return get_business_analytics(business_id)
+
+class LeadCreateRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    message: str | None = None
+
+@router.post("/{business_id}/leads")
+def submit_lead_route(business_id: str, payload: LeadCreateRequest):
+    return create_lead(business_id, payload.dict())
+
+
+@router.get("/{business_id}/leads")
+def list_leads_route(business_id: str, score: str | None = None):
+    if score:
+        return filter_leads(business_id, score)
+    return list_leads(business_id)

@@ -1,11 +1,6 @@
-import uuid
 import os
 import requests
 from datetime import datetime
-from typing import Optional
-from models.lead import Lead
-from services.referral_service import validate_referral_code, track_referral
-from services.rep_service import get_rep
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -13,130 +8,73 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 headers = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "Prefer": "return=representation"
 }
 
-# -----------------------------
-# Lead scoring
-# -----------------------------
-def score_lead(data: dict) -> int:
-    score = 0
+# ---------------------------------------------------------
+# SIMPLE LEAD SCORING
+# ---------------------------------------------------------
+def score_lead(message: str):
+    if not message:
+        return "low"
 
-    if data.get("email"):
-        score += 20
-    if data.get("phone"):
-        score += 20
-    if data.get("message") and len(data["message"]) > 50:
-        score += 20
-    if data.get("referral_code"):
-        score += 20
-    if data.get("rep_id"):
-        score += 20
+    msg = message.lower()
 
-    return min(score, 100)
+    high_keywords = ["urgent", "asap", "quote", "call me", "interested", "buy", "pricing"]
+    medium_keywords = ["info", "details", "learn more"]
+
+    if any(k in msg for k in high_keywords):
+        return "high"
+    if any(k in msg for k in medium_keywords):
+        return "medium"
+
+    return "low"
 
 
-# -----------------------------
-# Create / submit lead
-# -----------------------------
-def submit_lead(data: dict):
-    lead_id = str(uuid.uuid4())
-    created_at = datetime.utcnow().isoformat()
-
-    rep_id: Optional[str] = data.get("rep_id")
-    referral_code: Optional[str] = data.get("referral_code")
-
-    # Validate referral code
-    if referral_code and not rep_id:
-        rep = validate_referral_code(referral_code)
-        if rep:
-            rep_id = rep["id"]
-
-    lead_data = {
-        "id": lead_id,
-        "business_id": data["business_id"],
-        "name": data["name"],
-        "email": data.get("email"),
-        "phone": data.get("phone"),
-        "message": data.get("message"),
-        "rep_id": rep_id,
-        "referral_code": referral_code,
-        "status": "new",
-        "score": score_lead(data),
-        "created_at": created_at,
-    }
-
-    lead = Lead(**lead_data)
+# ---------------------------------------------------------
+# CREATE LEAD
+# ---------------------------------------------------------
+def create_lead(business_id: str, data: dict):
+    data["business_id"] = business_id
+    data["score"] = score_lead(data.get("message", ""))
 
     url = f"{SUPABASE_URL}/rest/v1/leads"
-    response = requests.post(url, json=lead.dict(), headers=headers)
+    response = requests.post(url, json=data, headers=headers)
 
     if response.status_code >= 300:
-        return {"status": "error", "message": "Failed to create lead"}
-
-    # Track referral
-    if referral_code:
-        track_referral({
-            "referral_code": referral_code,
-            "business_id": data["business_id"],
-            "lead_id": lead_id
-        })
+        print("Error inserting lead:", response.text)
+        raise Exception("Failed to insert lead")
 
     return {
         "status": "success",
-        "lead": response.json()[0]
+        "lead": response.json()
     }
 
 
-# -----------------------------
-# List leads for a business
-# -----------------------------
+# ---------------------------------------------------------
+# LIST LEADS
+# ---------------------------------------------------------
 def list_leads(business_id: str):
     url = f"{SUPABASE_URL}/rest/v1/leads?business_id=eq.{business_id}&order=created_at.desc"
-    res = requests.get(url, headers=headers).json()
+    response = requests.get(url, headers=headers)
 
-    return {
-        "status": "success",
-        "leads": res
-    }
+    if response.status_code >= 300:
+        print("Error fetching leads:", response.text)
+        raise Exception("Failed to fetch leads")
 
-
-# -----------------------------
-# Filter leads
-# -----------------------------
-def filter_leads(
-    business_id: str,
-    status: Optional[str] = None,
-    min_score: Optional[int] = None,
-    max_score: Optional[int] = None
-):
-    url = f"{SUPABASE_URL}/rest/v1/leads?business_id=eq.{business_id}"
-
-    if status:
-        url += f"&status=eq.{status}"
-    if min_score is not None:
-        url += f"&score=gte.{min_score}"
-    if max_score is not None:
-        url += f"&score=lte.{max_score}"
-
-    url += "&order=created_at.desc"
-
-    res = requests.get(url, headers=headers).json()
-
-    return {
-        "status": "success",
-        "leads": res
-    }
+    return response.json()
 
 
-# -----------------------------
-# Update lead status
-# -----------------------------
-def update_lead_status(lead_id: str, status: str):
-    url = f"{SUPABASE_URL}/rest/v1/leads?id=eq.{lead_id}"
-    res = requests.patch(url, json={"status": status}, headers=headers)
+# ---------------------------------------------------------
+# FILTER LEADS
+# ---------------------------------------------------------
+def filter_leads(business_id: str, score: str):
+    url = f"{SUPABASE_URL}/rest/v1/leads?business_id=eq.{business_id}&score=eq.{score}"
+    response = requests.get(url, headers=headers)
 
-    return {
-        "status": "success",
-        "updated": res.json()
-    }
+    if response.status_code >= 300:
+        print("Error filtering leads:", response.text)
+        raise Exception("Failed to filter leads")
+
+    return response.json()
